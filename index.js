@@ -3,16 +3,59 @@ import pg from "pg"
 import { body, validationResult } from "express-validator"
 import bcrypt from "bcrypt"
 import env from "dotenv"
+import session from "express-session"
+import passport from "passport"
+import { Strategy } from "passport-local"
 
-env.config(); // Load environment variables before using them
+
+
+env.config(); 
 
 if (!process.env.DB_USER || !process.env.DB_HOST || !process.env.DB_NAME || !process.env.DB_PASSWORD || !process.env.DB_PORT) {
   console.error("Missing required environment variables. Please check your .env file.");
-  process.exit(1); // Exit the application if environment variables are missing
+  process.exit(1);
 }
 
 const app = express()
 const PORT = 3043
+
+
+app.set("view engine", "ejs"); 
+
+
+app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
+app.use(express.static("public"));
+
+
+app.use(
+  session({
+    secret: "secrets",
+    resave: false,
+    saveUninitialized: true,
+    cookie: {secure: false}
+  })
+)
+
+app.use(passport.initialize());
+app.use(passport.session());
+
+passport.serializeUser((user, done) => {
+  done(null, user.id); // Assuming 'id' is the primary key in your users table
+});
+
+passport.deserializeUser(async (id, done) => {
+  try {
+    const result = await db.query("SELECT * FROM users WHERE id = $1", [id]);
+    if (result.rows.length > 0) {
+      done(null, result.rows[0]);
+    } else {
+      done(null, false);
+    }
+  } catch (err) {
+    done(err, null);
+  }
+});
 
 
 const db = new pg.Client(
@@ -22,23 +65,14 @@ const db = new pg.Client(
     host: process.env.DB_HOST,
     database: process.env.DB_NAME,
     password: process.env.DB_PASSWORD,
-    port: parseInt(process.env.DB_PORT, 10), // Ensure port is an integer
+    port: parseInt(process.env.DB_PORT, 10)
 });
-
-
-app.set("view engine", "ejs"); // Set EJS as the view engine
 
 
 db.connect()
   .then(() => console.log("Postgres connected"))
   .catch((err) => console.error("Connection error", err.stack));
  
-
-app.use(express.urlencoded({ extended: true }))
-app.use(express.json())
-app.use(express.static("public"))
-
-
 
 
 app.get("/", (_, res) => {
@@ -54,6 +88,13 @@ app.get("/register", (_, res) => {
     res.render("register.ejs")
 })
 
+app.get("/secrets", (req, res) => {
+  if (req.isAuthenticated()) {
+      res.render("secrets.ejs")
+  } else {
+      res.redirect("/login");
+  }
+})
 
 app.post("/register",
 [
@@ -69,7 +110,7 @@ app.post("/register",
 
     const email = req.body.username
     const password = req.body.password
-    const hashedPassword = await bcrypt.hash(password, 10); // Hash the password
+    const hashedPassword = await bcrypt.hash(password, 10); 
 
     try 
     {
@@ -79,7 +120,7 @@ app.post("/register",
         res.send("Email Is Existed...");
       } else {
         await db.query("INSERT INTO users (email, password) VALUES ($1, $2)", [email, hashedPassword]);
-        res.render("secrets.ejs"); // Ensure secrets.ejs exists in the views directory
+        res.render("secrets.ejs"); 
       }
 
     } catch (err) {
@@ -91,39 +132,36 @@ app.post("/register",
 
 
 
-app.post("/login", async (req, res) => {
-
-  const email = req.body.username;
-  const password = req.body.password;
-
+passport.use(new Strategy(async function verify(username, password, cb) {
   try {
-    const result = await db.query("SELECT * FROM users WHERE email = $1", [
-      email,
-    ]);
+    const result = await db.query("SELECT * FROM users WHERE email = $1", [username]);
 
     if (result.rows.length > 0) {
       const user = result.rows[0];
       const storedPassword = user.password;
 
-      const isMatch = await bcrypt.compare(password, storedPassword); // Compare hashed password
+      const isMatch = await bcrypt.compare(password, storedPassword);
       if (isMatch) {
-
-        res.render("secrets.ejs");
-
+        return cb(null, user);
       } else {
-        res.send("You entered an incorrect password");
+        return cb(null, false, { message: "Incorrect password" });
       }
     } else {
-      res.send("User not found");
+      return cb(null, false, { message: "User not found" });
     }
   } catch (err) {
     console.log(err);
-    res.status(500).send("An error occurred");
+    return cb(err);
   }
-});
+}));
+
+app.post("/login", passport.authenticate("local", {
+  successRedirect: "/secrets",
+  failureRedirect: "/login"
+}));
 
 
 
 app.listen(PORT, () => {
-    console.log(`Server is running at http://localhost${PORT}`)
+    console.log(`Server is running at http://localhost:${PORT}`)
 })
