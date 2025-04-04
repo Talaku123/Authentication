@@ -33,7 +33,7 @@ app.use(
     secret: "secrets",
     resave: false,
     saveUninitialized: true,
-    cookie: {secure: false}
+    cookie: {maxAge: 60000 * 60 * 24 * 7} 
   })
 )
 
@@ -119,8 +119,15 @@ app.post("/register",
       if (checkResult.rows.length > 0) {
         res.send("Email Is Existed...");
       } else {
-        await db.query("INSERT INTO users (email, password) VALUES ($1, $2)", [email, hashedPassword]);
-        res.render("secrets.ejs"); 
+        const result = await db.query("INSERT INTO users (email, password) VALUES ($1, $2) RETURNING *", [email, hashedPassword]);
+        const user = result.rows[0];
+        req.login(user, (err) => {
+          if (err) {
+            console.log(err);
+            return res.status(500).send("An error occurred during login");
+          }
+          res.redirect("/secrets");
+        });
       }
 
     } catch (err) {
