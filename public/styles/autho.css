@@ -43,7 +43,9 @@ body {
     z-index: 1;
 }
 
-.m-item {
+.m-item a{
+    color: #13130f;
+    cursor: pointer;
     display: flex;
     font-size: 1.8rem;
     padding-top: 100px;
